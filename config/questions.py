@@ -63,8 +63,8 @@ then it will add '.' before last 5 digits and answer. Examples:
 # * 850000 will be answered as "70833"
 '''
 
-# (In Development) # Currency of salaries you mentioned. Companies that allow string inputs will add this tag to the end of numbers. Eg: 
-# currency = "INR"                 # "USD", "INR", "EUR", etc.
+# Currency of salaries you mentioned. Companies that allow string inputs will add this tag to the end of numbers. Eg: 
+currency = "GBP"                 # "USD", "INR", "EUR", "GBP", etc.
 
 # What is your notice period in days?
 notice_period = 0                   # Any number >= 0 without quotes. Eg: 0, 7, 15, 30, 45, etc.
@@ -109,7 +109,11 @@ Gianni Zhang
 # Your user_information_all letter in quotes, use \n to add line breaks if using single quotes "user_information_all".You can skip \n if using triple quotes """user_information_all""" (This question makes sense though)
 # We use this to pass to AI to generate answer from information , Assuing Information contians eg: resume  all the information like name, experience, skills, Country, any illness etc. 
 user_information_all ="""
-User Information
+Hi, I'm Gianni Zhang, a recent MEng graduate in Electrical and Electronic Engineering from the University of Sheffield. I am passionate about building products that merge hands-on engineering with product-focused thinking, and I have practical project experience in both full-stack development and embedded systems.
+
+I independently designed and delivered a B2B fashion e-commerce platform using React, TypeScript, and a PHP REST API, implementing security features like TOTP 2FA. I also led the end-to-end development of a full-stack IoT EV rental and tracking platform, integrating an Arduino and GPS module with a PHP backend and a live web interface. My other projects include designing an Mbed OS-based microcontroller password lock and researching hardware Trojans in Approximate Computing using MATLAB.
+
+I am proficient in technologies like Python, C, PHP, MATLAB, and KiCad, and I am bilingual in Mandarin (Native) and English (IELTS 6.5). I am seeking a role where I can apply my cross-disciplinary technical skills and product-oriented mindset.
 """
 ##<
 '''
