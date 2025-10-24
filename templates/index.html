@@ -47,6 +47,10 @@
             width: 70px;
             text-align: center;
         }
+        .applied-time-column {
+            width: 160px;
+            text-align: center;
+        }
         .tick {
             color: #4CAF50;
             font-weight: bold;
@@ -68,6 +72,7 @@
                         <button class="sort-button" onclick="sortByExternalLink()">↕️</button>
                     </th> 
                     <th class="applied-column">Applied</th>
+                    <th class="applied-time-column">Applied Time</th>
                 </tr>
             </thead>
             <tbody id="jobsBody"></tbody>
@@ -78,6 +83,23 @@
         let sortOrder = 'asc';
         let jobsData = [];
         let appliedJobs = new Set();
+
+        function formatAppliedTime(value) {
+            if (!value || value === 'Pending') {
+                return 'Pending';
+            }
+            const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+            const parsed = new Date(normalized);
+            if (Number.isNaN(parsed.getTime())) {
+                return value;
+            }
+            const year = parsed.getFullYear();
+            const month = String(parsed.getMonth() + 1).padStart(2, '0');
+            const day = String(parsed.getDate()).padStart(2, '0');
+            const hours = String(parsed.getHours()).padStart(2, '0');
+            const minutes = String(parsed.getMinutes()).padStart(2, '0');
+            return `${year}-${month}-${day} ${hours}:${minutes}`;
+        }
 
         // Replace the createTableRow function with this updated version
         function createTableRow(job, index) {
@@ -120,10 +142,13 @@
             const extCell = document.createElement('td');
             const appliedCell = document.createElement('td');
             appliedCell.className = 'applied-column';
+            const appliedTimeCell = document.createElement('td');
+            appliedTimeCell.className = 'applied-time-column';
 
             if (job.External_Job_link === 'Easy Applied') {
                 extCell.textContent = 'Easy Applied';
                 appliedCell.innerHTML = '<span class="tick">✓</span>';
+                appliedTimeCell.textContent = formatAppliedTime(job.Date_Applied);
             } else if (job.External_Job_link) {
                 const extLink = document.createElement('a');
                 extLink.href = job.External_Job_link;
@@ -142,7 +167,10 @@
                         
                         if (response.ok) {
                             appliedCell.innerHTML = '<span class="tick">✓</span>';
-                            job.Date_Applied = new Date().toISOString();
+                            const now = new Date();
+                            const formatted = formatAppliedTime(now.toISOString());
+                            appliedTimeCell.textContent = formatted;
+                            job.Date_Applied = formatted;
                         }
                     } catch (error) {
                         console.error('Error updating applied date:', error);
@@ -154,11 +182,14 @@
                 if (job.Date_Applied !== 'Pending') {
                     appliedCell.innerHTML = '<span class="tick">✓</span>';
                 }
+                appliedTimeCell.textContent = formatAppliedTime(job.Date_Applied);
             } else {
                 extCell.textContent = 'N/A';
+                appliedTimeCell.textContent = formatAppliedTime(job.Date_Applied);
             }
             row.appendChild(extCell);
             row.appendChild(appliedCell);
+            row.appendChild(appliedTimeCell);
             
             return row;
         }

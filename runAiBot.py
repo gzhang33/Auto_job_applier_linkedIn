@@ -19,8 +19,6 @@ import csv
 import re
 import pyautogui
 
-# Set CSV field size limit to prevent field size errors
-csv.field_size_limit(1000000)  # Set to 1MB instead of default 131KB
 
 from random import choice, shuffle, randint
 from datetime import datetime
