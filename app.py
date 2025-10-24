@@ -8,6 +8,40 @@ app = Flask(__name__)
 CORS(app)
 
 PATH = 'all excels/'
+APPLIED_TIME_FORMAT = '%Y-%m-%d %H:%M'
+
+
+def normalize_applied_time(raw_value):
+    if not raw_value:
+        return 'Pending'
+
+    value = raw_value.strip()
+    if not value or value.lower() == 'pending':
+        return 'Pending'
+
+    parse_formats = (
+        APPLIED_TIME_FORMAT,
+        '%Y-%m-%d %H:%M:%S',
+        '%Y-%m-%dT%H:%M',
+        '%Y-%m-%dT%H:%M:%S',
+        '%Y-%m-%d',
+        '%m/%d/%Y %H:%M',
+        '%m/%d/%Y %H:%M:%S',
+        '%m/%d/%Y',
+    )
+
+    for fmt in parse_formats:
+        try:
+            parsed = datetime.strptime(value, fmt)
+            return parsed.strftime(APPLIED_TIME_FORMAT)
+        except ValueError:
+            continue
+
+    try:
+        parsed = datetime.fromisoformat(value)
+        return parsed.strftime(APPLIED_TIME_FORMAT)
+    except ValueError:
+        return value
 ##> ------ Karthik Sarode : karthik.sarode23@gmail.com - UI for excel files ------
 @app.route('/')
 def home():
@@ -39,7 +73,7 @@ def get_applied_jobs():
                     'HR_Link': row['HR Link'],
                     'Job_Link': row['Job Link'],
                     'External_Job_link': row['External Job link'],
-                    'Date_Applied': row['Date Applied']
+                    'Date_Applied': normalize_applied_time(row.get('Date Applied'))
                 })
         return jsonify(jobs)
     except FileNotFoundError:
@@ -75,7 +109,7 @@ def update_applied_date(job_id):
             found = False
             for row in reader:
                 if row['Job ID'] == job_id:
-                    row['Date Applied'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    row['Date Applied'] = datetime.now().strftime(APPLIED_TIME_FORMAT)
                     found = True
                 data.append(row)
         
