@@ -22,7 +22,7 @@ version:    24.12.29.12.30
 default_resume_path = "all resumes/default/resume.pdf"      # (In Development)
 
 # What do you want to answer for questions that ask about years of experience you have, this is different from current_experience? 
-years_of_experience = "1"          # A number in quotes Eg: "0","1","2","3","4", etc.
+years_of_experience = "2"          # A number in quotes Eg: "0","1","2","3","4", etc.
 
 # Do you need visa sponsorship now or in future?
 require_visa = "No"               # "Yes" or "No"
@@ -109,11 +109,25 @@ Gianni Zhang
 # Your user_information_all letter in quotes, use \n to add line breaks if using single quotes "user_information_all".You can skip \n if using triple quotes """user_information_all""" (This question makes sense though)
 # We use this to pass to AI to generate answer from information , Assuing Information contians eg: resume  all the information like name, experience, skills, Country, any illness etc. 
 user_information_all ="""
-Hi, I'm Gianni Zhang, a recent MEng graduate in Electrical and Electronic Engineering from the University of Sheffield. I am passionate about building products that merge hands-on engineering with product-focused thinking, and I have practical project experience in both full-stack development and embedded systems.
+Hi, I'm Gianni Zhang, a recent MEng graduate in Electrical and Electronic Engineering from the University of Sheffield. I have 2+ years of project experience in full-stack development and embedded systems.
 
-I independently designed and delivered a B2B fashion e-commerce platform using React, TypeScript, and a PHP REST API, implementing security features like TOTP 2FA. I also led the end-to-end development of a full-stack IoT EV rental and tracking platform, integrating an Arduino and GPS module with a PHP backend and a live web interface. My other projects include designing an Mbed OS-based microcontroller password lock and researching hardware Trojans in Approximate Computing using MATLAB.
+EXPERIENCE:
+- Full-stack Development: 1+ years (React, TypeScript, PHP, MySQL)
+- Embedded Systems: 2+ years (Arduino, Mbed OS, KiCad)
+- IoT Development: 1+ year (GPS modules, telemetry systems)
+- Security Implementation: 1+ year (TOTP 2FA, secure authentication)
 
-I am proficient in technologies like Python, C, PHP, MATLAB, and KiCad, and I am bilingual in Mandarin (Native) and English (IELTS 6.5). I am seeking a role where I can apply my cross-disciplinary technical skills and product-oriented mindset.
+PROJECTS:
+- B2B E-commerce Platform: 6 months (React + TypeScript + PHP REST API + MySQL)
+- IoT EV Rental System: 4 months (Arduino + GPS + PHP backend + web interface)
+- Microcontroller Password Lock: 3 months (Mbed OS + KiCad + sLCD)
+
+TECHNICAL SKILLS:
+- Programming: Python (2+ years), C (1+ year), PHP (1+ year), JavaScript/TypeScript (1+ year)
+- Hardware: Arduino (2+ years), Mbed OS (1+ year), KiCad (1+ year)
+- Tools: MATLAB (1+ year), Git (2+ years)
+
+I am bilingual in Mandarin (Native) and English (IELTS 6.5). I am seeking a role where I can apply my cross-disciplinary technical skills and product-oriented mindset.
 """
 ##<
 '''

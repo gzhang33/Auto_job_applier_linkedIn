@@ -23,7 +23,7 @@ search_terms = ["Full Stack Developer", "Embedded Engineer", "Project Manager", 
 search_location = "Sheffield, United Kingdom"               # Some valid examples: "", "United States", "India", "Chicago, Illinois, United States", "90001, Los Angeles, California, United States", "Bengaluru, Karnataka, India", etc.
 
 # After how many number of applications in current search should the bot switch to next search? 
-switch_number = 20                 # Only numbers greater than 0... Don't put in quotes
+switch_number = 30                 # Only numbers greater than 0... Don't put in quotes
 
 # Do you want to randomize the search order for search_terms?
 randomize_search_order = True     # True of False, Note: True or False are case-sensitive

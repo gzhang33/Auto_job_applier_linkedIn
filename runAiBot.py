@@ -422,6 +422,19 @@ def answer_common_questions(label: str, answer: str) -> str:
     if 'sponsorship' in label or 'visa' in label: answer = require_visa
     return answer
 
+# Function to log experience analysis for debugging
+def log_experience_analysis(question: str, answer: str, method: str) -> None:
+    """记录经验年限分析结果用于调试"""
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{timestamp}] Experience Analysis - Question: '{question}' | Answer: '{answer}' | Method: {method}\n"
+        
+        # 写入日志文件
+        with open("logs/experience_analysis.log", "a", encoding="utf-8") as f:
+            f.write(log_entry)
+    except Exception as e:
+        print_lg(f"Failed to log experience analysis: {e}")
+
 
 # Function to answer the questions for Easy Apply
 def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None ) -> set:
@@ -582,7 +595,31 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
 
             prev_answer = text.get_attribute("value")
             if not prev_answer or overwrite_previous_answers:
-                if 'experience' in label or 'years' in label: answer = years_of_experience
+                if 'experience' in label or 'years' in label: 
+                    # 优先使用AI分析用户背景来回答经验问题
+                    if use_AI and aiClient:
+                        try:
+                            if ai_provider.lower() == "openai":
+                                ai_answer = ai_answer_question(aiClient, label_org, question_type="text", job_description=job_description, user_information_all=user_information_all)
+                            elif ai_provider.lower() == "deepseek":
+                                ai_answer = deepseek_answer_question(aiClient, label_org, options=None, question_type="text", job_description=job_description, about_company=None, user_information_all=user_information_all)
+                            elif ai_provider.lower() == "gemini":
+                                ai_answer = gemini_answer_question(aiClient, label_org, options=None, question_type="text", job_description=job_description, about_company=None, user_information_all=user_information_all)
+                            
+                            if ai_answer and isinstance(ai_answer, str) and ai_answer.strip().isdigit():
+                                answer = ai_answer.strip()
+                                print_lg(f'AI analyzed experience for "{label_org}": {answer} years')
+                                # 记录AI分析的经验年限用于调试
+                                log_experience_analysis(label_org, answer, "AI_ANALYSIS")
+                            else:
+                                answer = years_of_experience
+                                print_lg(f'AI analysis failed for "{label_org}", using default: {answer} years')
+                                log_experience_analysis(label_org, answer, "DEFAULT_FALLBACK")
+                        except Exception as e:
+                            print_lg("AI experience analysis failed, using default:", e)
+                            answer = years_of_experience
+                    else:
+                        answer = years_of_experience
                 elif 'phone' in label or 'mobile' in label: answer = phone_number
                 elif 'street' in label: answer = street
                 elif 'city' in label or 'location' in label or 'address' in label:
