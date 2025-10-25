@@ -503,7 +503,7 @@ def log_experience_analysis(question: str, answer: str, method: str) -> None:
 # Function to answer the questions for Easy Apply
 def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None ) -> set:
     # Get all questions from the page
-     
+    do_actions = False  # 初始化变量，避免作用域错误
     all_questions = modal.find_elements(By.XPATH, ".//div[@data-test-form-element]")
     # all_questions = modal.find_elements(By.CLASS_NAME, "jobs-easy-apply-form-element")
     # all_list_questions = modal.find_elements(By.XPATH, ".//div[@data-test-text-entity-list-form-component]")
@@ -765,6 +765,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
         # Check if it's a textarea question
         text_area = try_xp(Question, ".//textarea", False)
         if text_area:
+            do_actions = False  # 为 textarea 重新初始化
             label = try_xp(Question, ".//label[@for]", False)
             label_org = label.text if label else "Unknown"
             label = label_org.lower()
@@ -971,19 +972,21 @@ def apply_to_jobs(search_terms: list[str]) -> None:
         try:
             while current_count < switch_number:
                 # 使用更稳定的等待条件，等待职位列表加载完成
-                try:
-                    wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
-                    # 额外等待确保页面完全加载
-                    buffer(2)
-                except Exception as e:
-                    print_lg("Failed to load job listings, retrying...")
-                    buffer(3)
-                    # 重试一次
+                max_page_retries = 3
+                for page_retry in range(max_page_retries):
                     try:
                         wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
-                    except Exception as retry_error:
-                        print_lg("Still failed to load job listings after retry")
-                        raise retry_error
+                        # 额外等待确保页面完全加载
+                        buffer(2)
+                        break
+                    except Exception as e:
+                        if page_retry < max_page_retries - 1:
+                            print_lg(f"Failed to load job listings, retrying... ({page_retry + 1}/{max_page_retries})")
+                            buffer(3)
+                            continue
+                        else:
+                            print_lg("Still failed to load job listings after all retries")
+                            raise e
 
                 pagination_element, current_page = get_page_info()
 
@@ -1104,62 +1107,38 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                     # Case 1: Easy Apply Button
                     if try_xp(driver, ".//button[contains(@class,'jobs-apply-button') and contains(@class, 'artdeco-button--3') and contains(@aria-label, 'Easy')]"):
                         try: 
-                            try:
-                                errored = ""
-                                modal = find_by_class(driver, "jobs-easy-apply-modal")
-                                wait_span_click(modal, "Next", 1)
-                                # if description != "Unknown":
-                                #     resume = create_custom_resume(description)
-                                resume = "Previous resume"
-                                next_button = True
-                                questions_list = set()
-                                next_counter = 0
-                                while next_button:
-                                    next_counter += 1
-                                    if next_counter >= 15: 
-                                        if pause_at_failed_question:
-                                            screenshot(driver, job_id, "Needed manual intervention for failed question")
-                                            pyautogui.alert("Couldn't answer one or more questions.\nPlease click \"Continue\" once done.\nDO NOT CLICK Back, Next or Review button in LinkedIn.\n\n\n\n\nYou can turn off \"Pause at failed question\" setting in config.py", "Help Needed", "Continue")
-                                            next_counter = 1
-                                            continue
-                                        if questions_list: print_lg("Stuck for one or some of the following questions...", questions_list)
-                                        screenshot_name = screenshot(driver, job_id, "Failed at questions")
-                                        errored = "stuck"
-                                        raise Exception("Seems like stuck in a continuous loop of next, probably because of new questions.")
-                                    questions_list = answer_questions(modal, questions_list, work_location, job_description=description)
-                                    if useNewResume and not uploaded: uploaded, resume = upload_resume(modal, default_resume_path)
-                                    try: next_button = modal.find_element(By.XPATH, './/span[normalize-space(.)="Review"]') 
-                                    except NoSuchElementException:  next_button = modal.find_element(By.XPATH, './/button[contains(span, "Next")]')
-                                    try: next_button.click()
-                                    except ElementClickInterceptedException: break    # Happens when it tries to click Next button in About Company photos section
-                                    buffer(click_gap)
+                            errored = ""
+                            modal = find_by_class(driver, "jobs-easy-apply-modal")
+                            wait_span_click(modal, "Next", 1)
+                            # if description != "Unknown":
+                            #     resume = create_custom_resume(description)
+                            resume = "Previous resume"
+                            next_button = True
+                            questions_list = set()
+                            next_counter = 0
+                            while next_button:
+                                next_counter += 1
+                                if next_counter >= 15: 
+                                    if pause_at_failed_question:
+                                        screenshot(driver, job_id, "Needed manual intervention for failed question")
+                                        pyautogui.alert("Couldn't answer one or more questions.\nPlease click \"Continue\" once done.\nDO NOT CLICK Back, Next or Review button in LinkedIn.\n\n\n\n\nYou can turn off \"Pause at failed question\" setting in config.py", "Help Needed", "Continue")
+                                        next_counter = 1
+                                        continue
+                                    if questions_list: print_lg("Stuck for one or some of the following questions...", questions_list)
+                                    screenshot_name = screenshot(driver, job_id, "Failed at questions")
+                                    errored = "stuck"
+                                    raise Exception("Seems like stuck in a continuous loop of next, probably because of new questions.")
+                                questions_list = answer_questions(modal, questions_list, work_location, job_description=description)
+                                if useNewResume and not uploaded: uploaded, resume = upload_resume(modal, default_resume_path)
+                                try: next_button = modal.find_element(By.XPATH, './/span[normalize-space(.)="Review"]') 
+                                except NoSuchElementException:  next_button = modal.find_element(By.XPATH, './/button[contains(span, "Next")]')
+                                try: next_button.click()
+                                except ElementClickInterceptedException: break    # Happens when it tries to click Next button in About Company photos section
+                                buffer(click_gap)
 
-                            except NoSuchElementException: errored = "nose"
-                            finally:
-                                if questions_list and errored != "stuck": 
-                                    print_lg("Answered the following questions...", questions_list)
-                                    print("\n\n" + "\n".join(str(question) for question in questions_list) + "\n\n")
-                                wait_span_click(driver, "Review", 1, scrollTop=True)
-                                cur_pause_before_submit = pause_before_submit
-                                if errored != "stuck" and cur_pause_before_submit:
-                                    decision = pyautogui.confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
-                                    if decision == "Discard Application": raise Exception("Job application discarded by user!")
-                                    pause_before_submit = False if "Disable Pause" == decision else True
-                                    # try_xp(modal, ".//span[normalize-space(.)='Review']")
-                                follow_company(modal)
-                                if wait_span_click(driver, "Submit application", 2, scrollTop=True): 
-                                    date_applied = datetime.now()
-                                    if not wait_span_click(driver, "Done", 2): actions.send_keys(Keys.ESCAPE).perform()
-                                elif errored != "stuck" and cur_pause_before_submit and "Yes" in pyautogui.confirm("You submitted the application, didn't you 😒?", "Failed to find Submit Application!", ["Yes", "No"]):
-                                    date_applied = datetime.now()
-                                    wait_span_click(driver, "Done", 2)
-                                else:
-                                    print_lg("Since, Submit Application failed, discarding the job application...")
-                                    # if screenshot_name == "Not Available":  screenshot_name = screenshot(driver, job_id, "Failed to click Submit application")
-                                    # else:   screenshot_name = [screenshot_name, screenshot(driver, job_id, "Failed to click Submit application")]
-                                    if errored == "nose": raise Exception("Failed to click Submit application 😑")
-
-
+                        except NoSuchElementException: 
+                            errored = "nose"
+                            print_lg("No such element found in Easy Apply process")
                         except Exception as e:
                             print_lg("Failed to Easy apply!")
                             # print_lg(e)
@@ -1168,6 +1147,29 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                             failed_count += 1
                             discard_job()
                             continue
+                        finally:
+                            if questions_list and errored != "stuck": 
+                                print_lg("Answered the following questions...", questions_list)
+                                print("\n\n" + "\n".join(str(question) for question in questions_list) + "\n\n")
+                            wait_span_click(driver, "Review", 1, scrollTop=True)
+                            cur_pause_before_submit = pause_before_submit
+                            if errored != "stuck" and cur_pause_before_submit:
+                                decision = pyautogui.confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
+                                if decision == "Discard Application": raise Exception("Job application discarded by user!")
+                                pause_before_submit = False if "Disable Pause" == decision else True
+                            # try_xp(modal, ".//span[normalize-space(.)='Review']")
+                            follow_company(modal)
+                            if wait_span_click(driver, "Submit application", 2, scrollTop=True): 
+                                date_applied = datetime.now()
+                                if not wait_span_click(driver, "Done", 2): actions.send_keys(Keys.ESCAPE).perform()
+                            elif errored != "stuck" and cur_pause_before_submit and "Yes" in pyautogui.confirm("You submitted the application, didn't you 😒?", "Failed to find Submit Application!", ["Yes", "No"]):
+                                date_applied = datetime.now()
+                                wait_span_click(driver, "Done", 2)
+                            else:
+                                print_lg("Since, Submit Application failed, discarding the job application...")
+                                # if screenshot_name == "Not Available":  screenshot_name = screenshot(driver, job_id, "Failed to click Submit application")
+                                # else:   screenshot_name = [screenshot_name, screenshot(driver, job_id, "Failed to click Submit application")]
+                                if errored == "nose": raise Exception("Failed to click Submit application 😑")
                     else:
                         # Case 2: Apply externally
                         skip, application_link, tabs_count = external_apply(pagination_element, job_id, job_link, resume, date_listed, application_link, screenshot_name)
