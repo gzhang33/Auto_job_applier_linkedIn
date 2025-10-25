@@ -34,11 +34,29 @@ def wait_span_click(driver: WebDriver, text: str, time: float=5.0, click: bool=T
     '''
     if text:
         try:
-            button = WebDriverWait(driver,time).until(EC.presence_of_element_located((By.XPATH, './/span[normalize-space(.)="'+text+'"]')))
-            if scroll:  scroll_to_view(driver, button, scrollTop)
+            # 使用更稳定的等待条件，避免 stale element 问题
+            button = WebDriverWait(driver, time).until(
+                EC.element_to_be_clickable((By.XPATH, './/span[normalize-space(.)="'+text+'"]'))
+            )
+            if scroll:  
+                scroll_to_view(driver, button, scrollTop)
             if click:
-                button.click()
-                buffer(click_gap)
+                # 添加重试机制处理 stale element
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        button.click()
+                        buffer(click_gap)
+                        break
+                    except Exception as stale_error:
+                        if "stale element" in str(stale_error).lower() and attempt < max_retries - 1:
+                            # 重新定位元素
+                            button = WebDriverWait(driver, 2).until(
+                                EC.element_to_be_clickable((By.XPATH, './/span[normalize-space(.)="'+text+'"]'))
+                            )
+                            continue
+                        else:
+                            raise stale_error
             return button
         except Exception as e:
             print_lg("Click Failed! Didn't find '"+text+"'")

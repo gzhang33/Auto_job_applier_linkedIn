@@ -45,6 +45,29 @@ from modules.ai.deepseekConnections import deepseek_create_client, deepseek_extr
 from modules.ai.geminiConnections import gemini_create_client, gemini_extract_skills, gemini_answer_question
 
 from typing import Literal
+from functools import wraps
+
+
+def retry_on_stale_element(max_retries=3, delay=1):
+    """
+    装饰器：处理 Stale Element Reference 错误
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if "stale element" in str(e).lower() and attempt < max_retries - 1:
+                        print_lg(f"Stale element detected, retrying... (attempt {attempt + 1}/{max_retries})")
+                        buffer(delay)
+                        continue
+                    else:
+                        raise e
+            return None
+        return wrapper
+    return decorator
 
 
 pyautogui.FAILSAFE = False
@@ -256,7 +279,12 @@ def get_page_info() -> tuple[WebElement | None, int | None]:
     try:
         pagination_element = try_find_by_classes(driver, ["jobs-search-pagination__pages", "artdeco-pagination", "artdeco-pagination__pages"])
         scroll_to_view(driver, pagination_element)
-        current_page = int(pagination_element.find_element(By.XPATH, "//button[contains(@class, 'active')]").text)
+        # 添加数据验证，避免空字符串转换错误
+        page_text = pagination_element.find_element(By.XPATH, "//button[contains(@class, 'active')]").text
+        if page_text and page_text.strip():
+            current_page = int(page_text)
+        else:
+            current_page = 1  # 默认第一页
     except Exception as e:
         print_lg("Failed to find Pagination element, hence couldn't scroll till end!")
         pagination_element = None
@@ -277,42 +305,68 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
     * work_style: Work style of this job (Remote, On-site, Hybrid)
     * skip: A boolean flag to skip this job
     '''
-    job_details_button = job.find_element(By.TAG_NAME, 'a')  # job.find_element(By.CLASS_NAME, "job-card-list__title")  # Problem in India
-    scroll_to_view(driver, job_details_button, True)
-    job_id = job.get_dom_attribute('data-occludable-job-id')
-    title = job_details_button.text
-    title = title[:title.find("\n")]
-    # company = job.find_element(By.CLASS_NAME, "job-card-container__primary-description").text
-    # work_location = job.find_element(By.CLASS_NAME, "job-card-container__metadata-item").text
-    other_details = job.find_element(By.CLASS_NAME, 'artdeco-entity-lockup__subtitle').text
-    index = other_details.find(' · ')
-    company = other_details[:index]
-    work_location = other_details[index+3:]
-    work_style = work_location[work_location.rfind('(')+1:work_location.rfind(')')]
-    work_location = work_location[:work_location.rfind('(')].strip()
-    
-    # Skip if previously rejected due to blacklist or already applied
-    skip = False
-    if company in blacklisted_companies:
-        print_lg(f'Skipping "{title} | {company}" job (Blacklisted Company). Job ID: {job_id}!')
-        skip = True
-    elif job_id in rejected_jobs: 
-        print_lg(f'Skipping previously rejected "{title} | {company}" job. Job ID: {job_id}!')
-        skip = True
-    try:
-        if job.find_element(By.CLASS_NAME, "job-card-container__footer-job-state").text == "Applied":
-            skip = True
-            print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
-    except: pass
-    try: 
-        if not skip: job_details_button.click()
-    except Exception as e:
-        print_lg(f'Failed to click "{title} | {company}" job on details button. Job ID: {job_id}!') 
-        # print_lg(e)
-        discard_job()
-        job_details_button.click() # To pass the error outside
-    buffer(click_gap)
-    return (job_id,title,company,work_location,work_style,skip)
+    # 添加重试机制处理元素定位失败
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            job_details_button = job.find_element(By.TAG_NAME, 'a')
+            scroll_to_view(driver, job_details_button, True)
+            job_id = job.get_dom_attribute('data-occludable-job-id')
+            title = job_details_button.text
+            title = title[:title.find("\n")] if "\n" in title else title
+            
+            other_details = job.find_element(By.CLASS_NAME, 'artdeco-entity-lockup__subtitle').text
+            index = other_details.find(' · ')
+            company = other_details[:index] if index > 0 else other_details
+            work_location = other_details[index+3:] if index > 0 else ""
+            work_style = work_location[work_location.rfind('(')+1:work_location.rfind(')')] if '(' in work_location and ')' in work_location else ""
+            work_location = work_location[:work_location.rfind('(')].strip() if '(' in work_location else work_location.strip()
+            
+            # Skip if previously rejected due to blacklist or already applied
+            skip = False
+            if company in blacklisted_companies:
+                print_lg(f'Skipping "{title} | {company}" job (Blacklisted Company). Job ID: {job_id}!')
+                skip = True
+            elif job_id in rejected_jobs: 
+                print_lg(f'Skipping previously rejected "{title} | {company}" job. Job ID: {job_id}!')
+                skip = True
+            try:
+                if job.find_element(By.CLASS_NAME, "job-card-container__footer-job-state").text == "Applied":
+                    skip = True
+                    print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
+            except: pass
+            
+            # 添加重试机制处理点击失败
+            if not skip:
+                click_success = False
+                for click_attempt in range(max_retries):
+                    try:
+                        job_details_button.click()
+                        click_success = True
+                        break
+                    except Exception as click_error:
+                        if "stale element" in str(click_error).lower() and click_attempt < max_retries - 1:
+                            # 重新定位元素
+                            job_details_button = job.find_element(By.TAG_NAME, 'a')
+                            continue
+                        elif click_attempt == max_retries - 1:
+                            print_lg(f'Failed to click "{title} | {company}" job on details button. Job ID: {job_id}!') 
+                            discard_job()
+                            raise click_error
+                        else:
+                            continue
+                            
+            buffer(click_gap)
+            return (job_id, title, company, work_location, work_style, skip)
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print_lg(f"Retrying job details extraction (attempt {attempt + 1}/{max_retries})")
+                buffer(1)  # 短暂等待后重试
+                continue
+            else:
+                print_lg(f"Failed to extract job details after {max_retries} attempts: {e}")
+                return ("", "", "", "", "", True)  # 返回空值并跳过
 
 
 # Function to check for Blacklisted words in About Company
@@ -347,7 +401,17 @@ def extract_years_of_experience(text: str) -> int:
     if len(matches) == 0: 
         print_lg(f'\n{text}\n\nCouldn\'t find experience requirement in About the Job!')
         return 0
-    return max([int(match) for match in matches if int(match) <= 12])
+    # 添加数据验证，避免空字符串转换错误
+    valid_matches = []
+    for match in matches:
+        if match and match.strip():  # 检查非空
+            try:
+                value = int(match)
+                if value <= 12:  # 合理的经验年限范围
+                    valid_matches.append(value)
+            except ValueError:
+                continue  # 跳过无效的匹配
+    return max(valid_matches) if valid_matches else 0
 
 
 
@@ -906,8 +970,20 @@ def apply_to_jobs(search_terms: list[str]) -> None:
         current_count = 0
         try:
             while current_count < switch_number:
-                # Wait until job listings are loaded
-                wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
+                # 使用更稳定的等待条件，等待职位列表加载完成
+                try:
+                    wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
+                    # 额外等待确保页面完全加载
+                    buffer(2)
+                except Exception as e:
+                    print_lg("Failed to load job listings, retrying...")
+                    buffer(3)
+                    # 重试一次
+                    try:
+                        wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
+                    except Exception as retry_error:
+                        print_lg("Still failed to load job listings after retry")
+                        raise retry_error
 
                 pagination_element, current_page = get_page_info()
 
