@@ -28,7 +28,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.remote.webelement import WebElement
-from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, NoSuchWindowException, ElementNotInteractableException, WebDriverException
+from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, NoSuchWindowException, ElementNotInteractableException, WebDriverException, TimeoutException
 
 from config.personals import *
 from config.questions import *
@@ -309,8 +309,13 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            job_details_button = job.find_element(By.TAG_NAME, 'a')
+            # 使用显式等待定位职位链接，提高稳定性
+            job_details_button = WebDriverWait(driver, 5).until(
+                lambda d: job.find_element(By.TAG_NAME, 'a')
+            )
+            # 确保元素可见
             scroll_to_view(driver, job_details_button, True)
+            buffer(0.5)  # 短暂等待滚动完成
             job_id = job.get_dom_attribute('data-occludable-job-id')
             title = job_details_button.text
             title = title[:title.find("\n")] if "\n" in title else title
@@ -346,8 +351,23 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
                         break
                     except Exception as click_error:
                         if "stale element" in str(click_error).lower() and click_attempt < max_retries - 1:
-                            # 重新定位元素
-                            job_details_button = job.find_element(By.TAG_NAME, 'a')
+                            # 重新定位元素，使用显式等待
+                            try:
+                                job_details_button = WebDriverWait(driver, 3).until(
+                                    lambda d: job.find_element(By.TAG_NAME, 'a')
+                                )
+                                scroll_to_view(driver, job_details_button, True)
+                                buffer(0.5)
+                            except Exception:
+                                # 如果重新定位失败，尝试重新获取 job 元素
+                                job_listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")
+                                if job_listings and job_id:
+                                    # 尝试通过 job_id 找到对应的 job 元素
+                                    for j in job_listings:
+                                        if j.get_dom_attribute('data-occludable-job-id') == job_id:
+                                            job = j
+                                            job_details_button = j.find_element(By.TAG_NAME, 'a')
+                                            break
                             continue
                         elif click_attempt == max_retries - 1:
                             print_lg(f'Failed to click "{title} | {company}" job on details button. Job ID: {job_id}!') 
@@ -363,6 +383,15 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
             if attempt < max_retries - 1:
                 print_lg(f"Retrying job details extraction (attempt {attempt + 1}/{max_retries})")
                 buffer(1)  # 短暂等待后重试
+                # 重新获取 job 元素，避免 stale element
+                try:
+                    job_listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")
+                    if job_listings:
+                        # 尝试通过索引或 job_id 重新获取
+                        job_index = job_listings.index(job) if job in job_listings else 0
+                        job = job_listings[job_index] if job_index < len(job_listings) else job_listings[0]
+                except Exception:
+                    pass
                 continue
             else:
                 print_lg(f"Failed to extract job details after {max_retries} attempts: {e}")
@@ -489,15 +518,35 @@ def answer_common_questions(label: str, answer: str) -> str:
 # Function to log experience analysis for debugging
 def log_experience_analysis(question: str, answer: str, method: str) -> None:
     """记录经验年限分析结果用于调试"""
-    try:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{timestamp}] Experience Analysis - Question: '{question}' | Answer: '{answer}' | Method: {method}\n"
-        
-        # 写入日志文件
-        with open("logs/experience_analysis.log", "a", encoding="utf-8") as f:
-            f.write(log_entry)
-    except Exception as e:
-        print_lg(f"Failed to log experience analysis: {e}")
+    import time
+    max_retries = 3
+    retry_delay = 0.1
+    log_file = "logs/experience_analysis.log"
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{timestamp}] Experience Analysis - Question: '{question}' | Answer: '{answer}' | Method: {method}\n"
+    
+    # Retry mechanism for file writing
+    for attempt in range(max_retries):
+        try:
+            # Ensure directory exists
+            log_dir = os.path.dirname(log_file)
+            if log_dir and not os.path.exists(log_dir):
+                make_directories([log_dir])
+            
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(log_entry)
+                f.flush()  # Ensure data is written immediately
+            break  # Success, exit retry loop
+        except (PermissionError, IOError, OSError) as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                continue
+            else:
+                print_lg(f"Failed to log experience analysis after {max_retries} attempts: {e}")
+        except Exception as e:
+            print_lg(f"Unexpected error while logging experience analysis: {e}")
+            break
 
 
 # Function to answer the questions for Easy Apply
@@ -1130,10 +1179,47 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                     raise Exception("Seems like stuck in a continuous loop of next, probably because of new questions.")
                                 questions_list = answer_questions(modal, questions_list, work_location, job_description=description)
                                 if useNewResume and not uploaded: uploaded, resume = upload_resume(modal, default_resume_path)
-                                try: next_button = modal.find_element(By.XPATH, './/span[normalize-space(.)="Review"]') 
-                                except NoSuchElementException:  next_button = modal.find_element(By.XPATH, './/button[contains(span, "Next")]')
-                                try: next_button.click()
-                                except ElementClickInterceptedException: break    # Happens when it tries to click Next button in About Company photos section
+                                # 使用显式等待，避免 stale element
+                                next_button = None
+                                try:
+                                    next_button = WebDriverWait(modal, 3).until(
+                                        EC.element_to_be_clickable((By.XPATH, './/span[normalize-space(.)="Review"]'))
+                                    )
+                                except (NoSuchElementException, TimeoutException):
+                                    try:
+                                        next_button = WebDriverWait(modal, 3).until(
+                                            EC.element_to_be_clickable((By.XPATH, './/button[contains(span, "Next")]'))
+                                        )
+                                    except (NoSuchElementException, TimeoutException):
+                                        # 如果都找不到，可能已经到达最后一步
+                                        next_button = None
+                                        break
+                                
+                                if next_button:
+                                    try:
+                                        next_button.click()
+                                    except (ElementClickInterceptedException, Exception) as e:
+                                        if "stale element" in str(e).lower():
+                                            # 重新定位 next_button
+                                            try:
+                                                next_button = WebDriverWait(modal, 2).until(
+                                                    EC.element_to_be_clickable((By.XPATH, './/span[normalize-space(.)="Review"]'))
+                                                )
+                                                next_button.click()
+                                            except:
+                                                try:
+                                                    next_button = WebDriverWait(modal, 2).until(
+                                                        EC.element_to_be_clickable((By.XPATH, './/button[contains(span, "Next")]'))
+                                                    )
+                                                    next_button.click()
+                                                except:
+                                                    break
+                                        elif isinstance(e, ElementClickInterceptedException):
+                                            break  # Happens when it tries to click Next button in About Company photos section
+                                        else:
+                                            break
+                                else:
+                                    break
                                 buffer(click_gap)
 
                         except NoSuchElementException: 

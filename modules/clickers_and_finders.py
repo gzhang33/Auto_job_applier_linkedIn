@@ -141,23 +141,41 @@ def text_input_by_ID(driver: WebDriver, id: str, value: str, time: float=5.0) ->
     username_field.send_keys(Keys.CONTROL + "a")
     username_field.send_keys(value)
 
-def try_xp(driver: WebDriver, xpath: str, click: bool=True) -> WebElement | bool:
+def try_xp(driver: WebDriver, xpath: str, click: bool=True, timeout: float=5.0) -> WebElement | bool:
+    """
+    改进版：添加显式等待机制，提高定位稳定性
+    """
     try:
         if click:
-            driver.find_element(By.XPATH, xpath).click()
+            element = WebDriverWait(driver, timeout).until(
+                EC.element_to_be_clickable((By.XPATH, xpath))
+            )
+            element.click()
             return True
         else:
-            return driver.find_element(By.XPATH, xpath)
-    except: return False
+            element = WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.XPATH, xpath))
+            )
+            return element
+    except Exception as e:
+        return False
 
 def try_linkText(driver: WebDriver, linkText: str) -> WebElement | bool:
     try:    return driver.find_element(By.LINK_TEXT, linkText)
     except:  return False
 
-def try_find_by_classes(driver: WebDriver, classes: list[str]) -> WebElement | ValueError:
+def try_find_by_classes(driver: WebDriver, classes: list[str], timeout: float=5.0) -> WebElement | ValueError:
+    """
+    改进版：添加显式等待，提高定位成功率
+    """
     for cla in classes:
-        try:    return driver.find_element(By.CLASS_NAME, cla)
-        except: pass
+        try:
+            element = WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.CLASS_NAME, cla))
+            )
+            return element
+        except Exception:
+            continue
     raise ValueError("Failed to find an element with given classes")
 
 def company_search_click(driver: WebDriver, actions: ActionChains, companyName: str) -> None:

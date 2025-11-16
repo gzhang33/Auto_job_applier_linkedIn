@@ -60,6 +60,24 @@
 <body>
     <div class="container">
         <h1>Applied Jobs History</h1>
+        <div class="filters" style="margin-bottom: 20px; padding: 15px; background-color: #f9f9f9; border-radius: 5px;">
+            <label for="easyApplyFilter" style="margin-right: 20px;">
+                Easy Apply:
+                <select id="easyApplyFilter" style="margin-left: 5px; padding: 5px 10px; border: 1px solid #ddd; border-radius: 3px;">
+                    <option value="all">All</option>
+                    <option value="easy">Easy Apply</option>
+                    <option value="not-easy">Not Easy Apply</option>
+                </select>
+            </label>
+            <label for="appliedFilter">
+                Applied Status:
+                <select id="appliedFilter" style="margin-left: 5px; padding: 5px 10px; border: 1px solid #ddd; border-radius: 3px;">
+                    <option value="all">All</option>
+                    <option value="applied">Applied</option>
+                    <option value="pending">Pending</option>
+                </select>
+            </label>
+        </div>
         <table id="jobsTable">
             <thead>
                 <tr>
@@ -82,6 +100,7 @@
     <script>
         let sortOrder = 'asc';
         let jobsData = [];
+        let filteredJobsData = [];
         let appliedJobs = new Set();
 
         function formatAppliedTime(value) {
@@ -166,11 +185,16 @@
                         });
                         
                         if (response.ok) {
-                            appliedCell.innerHTML = '<span class="tick">✓</span>';
                             const now = new Date();
                             const formatted = formatAppliedTime(now.toISOString());
-                            appliedTimeCell.textContent = formatted;
                             job.Date_Applied = formatted;
+                            // Update in both arrays
+                            const jobInFiltered = filteredJobsData.find(j => j.Job_ID === job.Job_ID);
+                            if (jobInFiltered) {
+                                jobInFiltered.Date_Applied = formatted;
+                            }
+                            // Re-apply filters to update display
+                            applyFilters();
                         }
                     } catch (error) {
                         console.error('Error updating applied date:', error);
@@ -194,10 +218,39 @@
             return row;
         }
 
+        function applyFilters() {
+            const easyApplyFilter = document.getElementById('easyApplyFilter').value;
+            const appliedFilter = document.getElementById('appliedFilter').value;
+            
+            filteredJobsData = jobsData.filter(job => {
+                // Easy Apply filter
+                const isEasyApply = job.External_Job_link === 'Easy Applied';
+                if (easyApplyFilter === 'easy' && !isEasyApply) return false;
+                if (easyApplyFilter === 'not-easy' && isEasyApply) return false;
+                
+                // Applied status filter
+                const isApplied = job.Date_Applied && job.Date_Applied !== 'Pending';
+                if (appliedFilter === 'applied' && !isApplied) return false;
+                if (appliedFilter === 'pending' && isApplied) return false;
+                
+                return true;
+            });
+            
+            renderTable();
+        }
+        
+        function renderTable() {
+            const tbody = document.getElementById('jobsBody');
+            tbody.innerHTML = '';
+            filteredJobsData.forEach((job, index) => {
+                tbody.appendChild(createTableRow(job, index));
+            });
+        }
+
         function sortByExternalLink() {
             sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
             
-            jobsData.sort((a, b) => {
+            filteredJobsData.sort((a, b) => {
                 const valueA = a.External_Job_link || '';
                 const valueB = b.External_Job_link || '';
                 
@@ -208,21 +261,19 @@
                 }
             });
             
-            const tbody = document.getElementById('jobsBody');
-            tbody.innerHTML = '';
-            jobsData.forEach((job, index) => {
-                tbody.appendChild(createTableRow(job, index));
-            });
+            renderTable();
         }
+
+        // Add event listeners for filters
+        document.getElementById('easyApplyFilter').addEventListener('change', applyFilters);
+        document.getElementById('appliedFilter').addEventListener('change', applyFilters);
 
         fetch('http://localhost:5000/applied-jobs')
             .then(response => response.json())
             .then(jobs => {
                 jobsData = jobs;
-                const tbody = document.getElementById('jobsBody');
-                jobs.forEach((job, index) => {
-                    tbody.appendChild(createTableRow(job, index));
-                });
+                filteredJobsData = jobs;
+                applyFilters();
             })
             .catch(error => console.error('Error:', error));
     </script>
