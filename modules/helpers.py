@@ -97,45 +97,16 @@ def print_lg(*msgs: str | dict, end: str = "\n", pretty: bool = False, flush: bo
     '''
     Function to log and print. **Note that, `end` and `flush` parameters are ignored if `pretty = True`**
     '''
-    import time
-    max_retries = 3
-    retry_delay = 0.1
-    
-    for message in msgs:
-        pprint(message) if pretty else print(message, end=end, flush=flush)
-        
-        # Retry mechanism for file writing
-        written = False
-        for attempt in range(max_retries):
-            try:
-                # Use 'a' mode instead of 'a+' to avoid potential locking issues
-                # Ensure directory exists
-                log_dir = os.path.dirname(__logs_file_path)
-                if log_dir and not os.path.exists(log_dir):
-                    make_directories([log_dir])
-                
-                with open(__logs_file_path, 'a', encoding="utf-8") as file:
-                    file.write(str(message) + end)
-                    file.flush()  # Ensure data is written immediately
-                written = True
-                break
-            except (PermissionError, IOError, OSError) as e:
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
-                    continue
-                else:
-                    # Last attempt failed
-                    trail = f'Skipped saving this message: "{message}" to log.txt!' if from_critical else "We'll try one more time to log..."
-                    error_msg = f"log.txt in {logs_folder_path} is open or is occupied by another program! Please close it! {trail}"
-                    alert(error_msg, "Failed Logging")
-                    if not from_critical:
-                        # Use print instead of print_lg to avoid recursion
-                        print(f"CRITICAL: Log.txt is open or is occupied by another program! Error: {e}")
-            except Exception as e:
-                # Other unexpected errors
-                if not from_critical:
-                    print(f"Unexpected error while writing to log: {e}")
-                break
+    try:
+        for message in msgs:
+            pprint(message) if pretty else print(message, end=end, flush=flush)
+            with open(__logs_file_path, 'a+', encoding="utf-8") as file:
+                file.write(str(message) + end)
+    except Exception as e:
+        trail = f'Skipped saving this message: "{message}" to log.txt!' if from_critical else "We'll try one more time to log..."
+        alert(f"log.txt in {logs_folder_path} is open or is occupied by another program! Please close it! {trail}", "Failed Logging")
+        if not from_critical:
+            critical_error_log("Log.txt is open or is occupied by another program!", e)
 #>
 
 

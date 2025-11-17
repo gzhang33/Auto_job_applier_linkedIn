@@ -518,35 +518,15 @@ def answer_common_questions(label: str, answer: str) -> str:
 # Function to log experience analysis for debugging
 def log_experience_analysis(question: str, answer: str, method: str) -> None:
     """记录经验年限分析结果用于调试"""
-    import time
-    max_retries = 3
-    retry_delay = 0.1
-    log_file = "logs/experience_analysis.log"
-    
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_entry = f"[{timestamp}] Experience Analysis - Question: '{question}' | Answer: '{answer}' | Method: {method}\n"
-    
-    # Retry mechanism for file writing
-    for attempt in range(max_retries):
-        try:
-            # Ensure directory exists
-            log_dir = os.path.dirname(log_file)
-            if log_dir and not os.path.exists(log_dir):
-                make_directories([log_dir])
-            
-            with open(log_file, "a", encoding="utf-8") as f:
-                f.write(log_entry)
-                f.flush()  # Ensure data is written immediately
-            break  # Success, exit retry loop
-        except (PermissionError, IOError, OSError) as e:
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
-                continue
-            else:
-                print_lg(f"Failed to log experience analysis after {max_retries} attempts: {e}")
-        except Exception as e:
-            print_lg(f"Unexpected error while logging experience analysis: {e}")
-            break
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{timestamp}] Experience Analysis - Question: '{question}' | Answer: '{answer}' | Method: {method}\n"
+        
+        # 写入日志文件
+        with open("logs/experience_analysis.log", "a", encoding="utf-8") as f:
+            f.write(log_entry)
+    except Exception as e:
+        print_lg(f"Failed to log experience analysis: {e}")
 
 
 # Function to answer the questions for Easy Apply
@@ -1158,7 +1138,7 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                         try: 
                             errored = ""
                             modal = find_by_class(driver, "jobs-easy-apply-modal")
-                            wait_span_click(modal, "Next", 1)
+                            find_button_in_modal(modal, "Next", timeout=1)
                             # if description != "Unknown":
                             #     resume = create_custom_resume(description)
                             resume = "Previous resume"
@@ -1179,48 +1159,20 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                     raise Exception("Seems like stuck in a continuous loop of next, probably because of new questions.")
                                 questions_list = answer_questions(modal, questions_list, work_location, job_description=description)
                                 if useNewResume and not uploaded: uploaded, resume = upload_resume(modal, default_resume_path)
-                                # 使用显式等待，避免 stale element
-                                next_button = None
-                                try:
-                                    next_button = WebDriverWait(modal, 3).until(
-                                        EC.element_to_be_clickable((By.XPATH, './/span[normalize-space(.)="Review"]'))
-                                    )
-                                except (NoSuchElementException, TimeoutException):
-                                    try:
-                                        next_button = WebDriverWait(modal, 3).until(
-                                            EC.element_to_be_clickable((By.XPATH, './/button[contains(span, "Next")]'))
-                                        )
-                                    except (NoSuchElementException, TimeoutException):
-                                        # 如果都找不到，可能已经到达最后一步
-                                        next_button = None
-                                        break
+                                # Use specialized modal button finder with fallback strategies for Review/Next buttons
+                                next_button = find_button_in_modal(
+                                    modal, 
+                                    "Review", 
+                                    timeout=3, 
+                                    click=True,
+                                    fallback_xpaths=['.//button[contains(span, "Next")]']
+                                )
                                 
                                 if next_button:
-                                    try:
-                                        next_button.click()
-                                    except (ElementClickInterceptedException, Exception) as e:
-                                        if "stale element" in str(e).lower():
-                                            # 重新定位 next_button
-                                            try:
-                                                next_button = WebDriverWait(modal, 2).until(
-                                                    EC.element_to_be_clickable((By.XPATH, './/span[normalize-space(.)="Review"]'))
-                                                )
-                                                next_button.click()
-                                            except:
-                                                try:
-                                                    next_button = WebDriverWait(modal, 2).until(
-                                                        EC.element_to_be_clickable((By.XPATH, './/button[contains(span, "Next")]'))
-                                                    )
-                                                    next_button.click()
-                                                except:
-                                                    break
-                                        elif isinstance(e, ElementClickInterceptedException):
-                                            break  # Happens when it tries to click Next button in About Company photos section
-                                        else:
-                                            break
+                                    buffer(click_gap)
                                 else:
+                                    # No Review or Next button found, likely reached the end
                                     break
-                                buffer(click_gap)
 
                         except NoSuchElementException: 
                             errored = "nose"
@@ -1237,7 +1189,7 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                             if questions_list and errored != "stuck": 
                                 print_lg("Answered the following questions...", questions_list)
                                 print("\n\n" + "\n".join(str(question) for question in questions_list) + "\n\n")
-                            wait_span_click(driver, "Review", 1, scrollTop=True)
+                            find_button_in_modal(modal, "Review", timeout=1, scrollTop=True)
                             cur_pause_before_submit = pause_before_submit
                             if errored != "stuck" and cur_pause_before_submit:
                                 decision = pyautogui.confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
@@ -1245,12 +1197,12 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                 pause_before_submit = False if "Disable Pause" == decision else True
                             # try_xp(modal, ".//span[normalize-space(.)='Review']")
                             follow_company(modal)
-                            if wait_span_click(driver, "Submit application", 2, scrollTop=True): 
+                            if find_button_in_modal(modal, "Submit application", timeout=2, scrollTop=True): 
                                 date_applied = datetime.now()
-                                if not wait_span_click(driver, "Done", 2): actions.send_keys(Keys.ESCAPE).perform()
+                                if not find_button_in_modal(modal, "Done", timeout=2): actions.send_keys(Keys.ESCAPE).perform()
                             elif errored != "stuck" and cur_pause_before_submit and "Yes" in pyautogui.confirm("You submitted the application, didn't you 😒?", "Failed to find Submit Application!", ["Yes", "No"]):
                                 date_applied = datetime.now()
-                                wait_span_click(driver, "Done", 2)
+                                find_button_in_modal(modal, "Done", timeout=2)
                             else:
                                 print_lg("Since, Submit Application failed, discarding the job application...")
                                 # if screenshot_name == "Not Available":  screenshot_name = screenshot(driver, job_id, "Failed to click Submit application")

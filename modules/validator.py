@@ -167,8 +167,8 @@ def validate_secrets() -> None | ValueError | TypeError:
     check_boolean(stream_output, "stream_output")
     
     ##> ------ Yang Li : MARKYangL - Feature ------
-    # Validate DeepSeek configuration
-    check_string(ai_provider, "ai_provider", ["openai", "deepseek"])
+    # Validate AI provider configuration
+    check_string(ai_provider, "ai_provider", ["openai", "deepseek", "gemini"])
 
     ##> ------ Tim L : tulxoro - Refactor ------
     if ai_provider == "deepseek":

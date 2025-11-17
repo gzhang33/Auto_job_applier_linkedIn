@@ -232,5 +232,5 @@ def deepseek_answer_question(
         return result
     except Exception as e:
         critical_error_log("Error occurred while answering question with DeepSeek!", e)
-        return {"error": str(e)}
+        return ""  # Return empty string on error for consistency
 ##< 

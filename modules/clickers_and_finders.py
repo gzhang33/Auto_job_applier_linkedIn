@@ -21,8 +21,115 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import NoSuchElementException, TimeoutException, ElementClickInterceptedException
 
 # Click Functions
+def find_button_in_modal(modal: WebElement, button_text: str, timeout: float = 5.0, 
+                         click: bool = True, scroll: bool = True, 
+                         scrollTop: bool = False, fallback_xpaths: list[str] | None = None,
+                         driver: WebDriver | None = None) -> WebElement | bool:
+    """
+    Specialized function for finding and clicking buttons within Easy Apply modal.
+    Provides enhanced error handling, retry logic, and modal-specific optimizations.
+    
+    Args:
+        modal: Easy Apply modal WebElement (jobs-easy-apply-modal)
+        button_text: Button text to find (e.g., "Review", "Submit application", "Done", "Next")
+        timeout: Maximum wait time in seconds
+        click: Whether to click the button after finding it
+        scroll: Whether to scroll to the element
+        scrollTop: Whether to scroll element to top of viewport
+        fallback_xpaths: Optional list of alternative XPath expressions to try if primary search fails
+        driver: Optional WebDriver instance (required if scroll=True, auto-detected from modal if not provided)
+        
+    Returns:
+        WebElement if found and clickable, False if not found
+        
+    Example:
+        # Simple usage
+        find_button_in_modal(modal, "Review", timeout=3)
+        
+        # With fallback strategies
+        find_button_in_modal(modal, "Next", fallback_xpaths=[
+            './/button[contains(span, "Next")]',
+            './/button[@data-easy-apply-next-button]'
+        ])
+    """
+    if not button_text:
+        return False
+    
+    # Primary XPath strategy
+    primary_xpath = f'.//span[normalize-space(.)="{button_text}"]'
+    xpath_strategies = [primary_xpath]
+    
+    # Add fallback XPaths if provided
+    if fallback_xpaths:
+        xpath_strategies.extend(fallback_xpaths)
+    
+    # Try each XPath strategy
+    for xpath in xpath_strategies:
+        try:
+            button = WebDriverWait(modal, timeout).until(
+                EC.element_to_be_clickable((By.XPATH, xpath))
+            )
+            
+            if scroll:
+                # Get driver from modal if not provided
+                if driver is None:
+                    driver = modal._parent
+                scroll_to_view(driver, button, scrollTop)
+            
+            if click:
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        button.click()
+                        buffer(click_gap)
+                        return button
+                    except Exception as click_error:
+                        error_str = str(click_error).lower()
+                        
+                        # Handle stale element reference
+                        if "stale element" in error_str and attempt < max_retries - 1:
+                            try:
+                                button = WebDriverWait(modal, 2).until(
+                                    EC.element_to_be_clickable((By.XPATH, xpath))
+                                )
+                                continue
+                            except:
+                                break
+                        
+                        # Handle click intercepted (element covered by another element)
+                        elif "click intercepted" in error_str or isinstance(click_error, ElementClickInterceptedException):
+                            # For modal buttons, this might indicate the button is not ready
+                            if attempt < max_retries - 1:
+                                sleep(0.5)
+                                continue
+                            else:
+                                raise
+                        else:
+                            raise
+            
+            return button
+            
+        except (NoSuchElementException, TimeoutException):
+            # Try next XPath strategy
+            continue
+        except ElementClickInterceptedException:
+            # This is expected in some cases (e.g., modal animations)
+            print_lg(f"Button '{button_text}' click intercepted, may need manual intervention")
+            return False
+        except Exception as e:
+            # Log unexpected errors but continue to next strategy
+            if xpath == primary_xpath:  # Only log for primary strategy to avoid spam
+                print_lg(f"Unexpected error finding button '{button_text}' in modal: {e}")
+            continue
+    
+    # All strategies failed
+    print_lg(f"Failed to find button '{button_text}' in modal after trying {len(xpath_strategies)} strategy(ies)")
+    return False
+
+
 def wait_span_click(driver: WebDriver, text: str, time: float=5.0, click: bool=True, scroll: bool=True, scrollTop: bool=False) -> WebElement | bool:
     '''
     Finds the span element with the given `text`.

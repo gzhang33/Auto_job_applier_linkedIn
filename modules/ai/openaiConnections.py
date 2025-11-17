@@ -253,6 +253,7 @@ def ai_answer_question(
         return response
     except Exception as e:
         ai_error_alert(f"Error occurred while answering question. {apiCheckInstructions}", e)
+        return ""  # Return empty string on error to prevent None
 ##<
 
 
