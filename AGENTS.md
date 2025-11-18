@@ -1,121 +1,32 @@
-# Repository Guidelines
+# Repository Project-Specific Rules
 
-## 核心原则（最高优先级）
+## Project Structure & Module Organization
 
-### 精确执行原则
-- **必须**：仅实现用户明确请求的更改，保留所有无关代码和行为
-- **禁止**：修改或删除用户未提及的代码、功能或行为
+### Core Files
+- `app.py`: Flask UI for viewing application records
+- `runAiBot.py`: Entry point for automated workflows
 
-### 最小化变更原则
-- **必须**：保持所有更改最小化和增量式
-- **禁止**：大规模重构或重写，除非用户明确要求
+### Directory Layout
+- `modules/`: Logic components
+- `config/`: Parameter declarations, including `secrets.py` (sensitive data)
+- `templates/`: UI and email templates
+- `setup/`: Installation scripts
+- `all resumes/`, `all excels/`: Output files
+- `logs/`: Log files
+- `__pycache__/`, `.venv/`: Should not be committed
 
-### 文件管理原则
-- **允许**：仅创建必要的代码文件（.py, .js, .ts, .json, .yaml 等）
-- **禁止**：创建非代码文件（.md, .txt, 报告、摘要等），除非用户明确请求并提供确切的文件名、位置和范围
-- **要求**：新文件放在其支持的功能附近，临时测试文件使用后立即删除
+### File Placement Rules
+- New feature code → appropriate submodule in `modules/`
+- Configuration → `config/`
+- Templates → `templates/`
+- Test files → should follow `test_*.py` naming
 
-### 解释与文档原则
-- **必须**：通过内联聊天回复或代码注释提供解释
-- **禁止**：生成单独的文档文件用于解释或总结
-- **要求**：代码注释解释"为什么"而非"是什么"
+---
 
-## 交互与响应规范
-
-### 语言规范
-- **解释语言**：所有解释、说明、步骤和标题使用简体中文
-- **代码语言**：所有代码、文件名、标识符、注释、Git 提交信息、PR 描述、分支名使用英文
-- **禁止**：在代码中使用中文注释或字符串（除非业务需求）
-
-### 沟通规范
-- **清晰度**：回复简洁、直接、易于浏览
-- **假设处理**：需要假设时，在继续之前明确说明并等待确认
-- **提问限制**：仅在必要时提问，最多 3 个聚焦问题
-- **事实核查**：陈述事实前必须验证，必要时使用网络搜索
-
-### 响应策略
-- **禁止**：道歉性表述、变更总结、讨论当前实现（除非被问及）、填充性短语、要求用户验证可见代码
-- **要求**：直接执行任务，通过结果展示而非描述
-
-## 项目结构与模块组织
-
-### 核心文件
-- `app.py`：Flask UI，查看申请记录
-- `runAiBot.py`：自动化流程入口
-
-### 目录结构
-- `modules/`：逻辑组件
-- `config/`：参数声明，包含 `secrets.py`（敏感信息）
-- `templates/`：UI/邮件部署模板
-- `setup/`：安装脚本
-- `all resumes/`、`all excels/`：输出文件
-- `logs/`：日志文件
-- `__pycache/`、`.venv/`：不应提交
-
-### 文件放置规则
-- 新功能代码 → `modules/` 对应子模块
-- 配置文件 → `config/`
-- 模板文件 → `templates/`
-- 测试文件 → `test_*.py` 命名
-
-## 构建、测试与开发命令
+## Build, Run, and Development Commands
 
 ```bash
-pip install -r requirements.txt  # 安装依赖
-python runAiBot.py              # 执行自动申请任务
-python app.py                   # 启动本地服务 http://localhost:5000
-python test.py                  # 手动检查，修改关键逻辑后必跑
-```
-
-## 编码风格与命名约定
-
-### Python 代码规范
-- **缩进**：4 个空格（禁止 Tab）
-- **命名**：`snake_case`（变量/函数）、`PascalCase`（类）、`UPPER_SNAKE_CASE`（常量）
-- **禁止**：魔法数字，必须提取为命名常量
-
-### 代码复用与质量
-- **优先**：复用 `modules/` 内已有函数
-- **要求**：遵循 SRP、DRY 原则，提取共享逻辑，使用有意义的描述性名称
-- **要求**：新增共享逻辑时注明区别，更新 `modules/validator.py` 中相应验证函数
-
-## 测试指南
-
-- 项目未集成自动化测试框架，需手动运行 `python test.py` 验证
-- 测试文件遵循 `test_*.py` 命名，方法名描述明确目的
-- 修改关键逻辑后必须运行测试，验证输出与日志行为
-
-## 提交与拉取请求指南
-
-### 提交信息规范
-- **格式**：`feat: ...`、`fix: ...`、`refactor: ...` 等前缀
-- **语言**：英文或中英文混合
-
-### Pull Request 要求
-- **必须**：清楚交代变更目的和影响范围
-- **推荐**：关联具体 issue，提供运行日志截图或测试结果
-
-### 代码贡献认证
-- **必须**：所有贡献附上认证块：
-  ```python
-  ##> ------ Name : github_id_or_email - ChangeType ------
-  # 你的代码
-  ##<
-  ```
-
-## 安全与配置提示
-
-- **敏感信息**：仅保留在 `config/secrets.py`，禁止提交凭证到版本控制，推荐使用环境变量
-- **ChromeDriver**：版本需与本地 Chrome 一致，运行 `setup/windows-setup.bat` 自动安装
-- **环境变量**：在 `config/secrets.py` 中读取，提供 `.env.example` 说明所需变量
-
-## 工具与依赖管理
-
-- 使用 `requirements.txt` 管理依赖，新增依赖后必须更新
-- 提交前运行项目格式化工具，保持代码风格一致
-
-## 错误处理与日志
-
-- 使用项目统一的日志系统，日志保存在 `logs/` 目录
-- 关键操作必须记录日志，错误信息包含足够上下文
-- 使用适当的异常处理，提供有意义的错误消息，避免静默失败
+pip install -r requirements.txt    # Install dependencies
+python runAiBot.py                 # Run automated job workflow
+python app.py                      # Launch local service http://localhost:5000
+python test.py                     # Manual check, required after modifying key logic
