@@ -9,12 +9,8 @@ old
 
 secrets.py
 # Personal config files (ignore but keep examples)
-config/personals.py
-config/questions.py
-config/search.py
-config/settings.py
-config/resume.py
-config/secrets.py
+config/*
+!config/*.example
 .venv
 apikeys.py
 agents.md
