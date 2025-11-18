@@ -17,3 +17,5 @@ config/resume.py
 config/secrets.py
 .venv
 apikeys.py
+agents.md
+docs/

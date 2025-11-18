@@ -19,6 +19,8 @@ import csv
 import re
 import pyautogui
 
+# Set CSV field size limit to prevent field size errors
+csv.field_size_limit(1000000)  # Set to 1MB instead of default 131KB
 
 from random import choice, shuffle, randint
 from datetime import datetime
@@ -140,7 +142,8 @@ def login_LN() -> None:
     * If both failed, asks user to login manually
     '''
     # Find the username and password fields and fill them with user credentials
-    driver.get("https://www.linkedin.com/login")
+    # Force English language interface by adding locale parameter
+    driver.get("https://www.linkedin.com/login?locale=en_US")
     try:
         wait.until(EC.presence_of_element_located((By.LINK_TEXT, "Forgot password?")))
         try:
@@ -1275,10 +1278,15 @@ linkedIn_tab = False
 
 def main() -> None:
     try:
-        global linkedIn_tab, tabs_count, useNewResume, aiClient
+        global linkedIn_tab, tabs_count, useNewResume, aiClient, use_AI
         alert_title = "Error Occurred. Closing Browser!"
-        total_runs = 1        
-        validate_config()
+        total_runs = 1
+        try:
+            validate_config()
+        except (ValueError, TypeError) as e:
+            print_lg(f"Configuration validation failed: {e}")
+            pyautogui.alert(f"Configuration Error:\n\n{e}\n\nPlease fix the configuration and try again.", alert_title)
+            return
         
         if not os.path.exists(default_resume_path):
             pyautogui.alert(text='Your default resume "{}" is missing! Please update it\'s folder path "default_resume_path" in config.py\n\nOR\n\nAdd a resume with exact name and path (check for spelling mistakes including cases).\n\n\nFor now the bot will continue using your previous upload from LinkedIn!'.format(default_resume_path), title="Missing Resume", button="OK")
@@ -1303,15 +1311,20 @@ def main() -> None:
         #     except Exception as e:
         #         print_lg("Opening OpenAI chatGPT tab failed!")
         if use_AI:
-            if ai_provider == "openai":
-                aiClient = ai_create_openai_client()
-            ##> ------ Yang Li : MARKYangL - Feature ------
-            # Create DeepSeek client
-            elif ai_provider == "deepseek":
-                aiClient = deepseek_create_client()
-            elif ai_provider == "gemini":
-                aiClient = gemini_create_client()
-            ##<
+            try:
+                if ai_provider == "openai":
+                    aiClient = ai_create_openai_client()
+                ##> ------ Yang Li : MARKYangL - Feature ------
+                # Create DeepSeek client
+                elif ai_provider == "deepseek":
+                    aiClient = deepseek_create_client()
+                elif ai_provider == "gemini":
+                    aiClient = gemini_create_client()
+                ##<
+            except Exception as e:
+                print_lg(f"Failed to create {ai_provider} AI client. Continuing without AI features.", e)
+                aiClient = None
+                use_AI = False
 
             try:
                 about_company_for_ai = " ".join([word for word in (first_name+" "+last_name).split() if len(word) > 3])
