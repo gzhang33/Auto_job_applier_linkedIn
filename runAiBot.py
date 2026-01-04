@@ -297,7 +297,7 @@ def get_page_info() -> tuple[WebElement | None, int | None]:
 
 
 
-def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_jobs: set) -> tuple[str, str, str, str, str, bool]:
+def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_jobs: set, job_index: int = 0) -> tuple[str, str, str, str, str, bool]:
     '''
     # Function to get job main details.
     Returns a tuple of (job_id, title, company, work_location, work_style, skip)
@@ -387,10 +387,14 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
                 print_lg(f"Retrying job details extraction (attempt {attempt + 1}/{max_retries})")
                 buffer(1)  # 短暂等待后重试
                 # 重新获取 job 元素，避免 stale element
+                # 重新获取 job 元素，避免 stale element
                 try:
                     job_listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")
-                    if job_listings:
-                        # 尝试通过索引或 job_id 重新获取
+                    if job_listings and 0 <= job_index < len(job_listings):
+                        # Use the index to get the correct job element
+                        job = job_listings[job_index]
+                    else:
+                        # Fallback if index is out of bounds (should rarely happen if list didn't shrink)
                         job_index = job_listings.index(job) if job in job_listings else 0
                         job = job_listings[job_index] if job_index < len(job_listings) else job_listings[0]
                 except Exception:
@@ -1027,12 +1031,13 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                 job_listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")  
 
             
-                for job in job_listings:
+                for index, job in enumerate(job_listings):
                     if keep_screen_awake: pyautogui.press('shiftright')
                     if current_count >= switch_number: break
                     print_lg("\n-@-\n")
 
-                    job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
+                    jobs_top_card = None # Initialize to avoid UnboundLocalError
+                    job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs, index)
                     
                     if skip: continue
                     # Redundant fail safe check for applied jobs!
@@ -1099,7 +1104,11 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                     try:
                         # try: time_posted_text = find_by_class(driver, "jobs-unified-top-card__posted-date", 2).text
                         # except: 
-                        time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
+                        if jobs_top_card:
+                             time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
+                        else:
+                             # Fallback if jobs_top_card failed to load
+                             time_posted_text = find_by_class(driver, "jobs-unified-top-card__posted-date", 2).text
                         print("Time Posted: " + time_posted_text)
                         if time_posted_text.__contains__("Reposted"):
                             reposted = True
