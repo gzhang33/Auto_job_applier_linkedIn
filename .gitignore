@@ -8,6 +8,10 @@ logs
 old
 
 secrets.py
-config/personals.py
+# Personal config files (ignore but keep examples)
+config/*
+!config/*.example
 .venv
 apikeys.py
+agents.md
+docs/

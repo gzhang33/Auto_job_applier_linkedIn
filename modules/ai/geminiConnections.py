@@ -158,4 +158,4 @@ def gemini_answer_question(
         return gemini_completion(model, prompt)
     except Exception as e:
         critical_error_log("Error occurred while answering question with Gemini!", e)
-        return {"error": str(e)}
+        return ""  # Return empty string on error for consistency

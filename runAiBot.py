@@ -30,7 +30,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.remote.webelement import WebElement
-from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, NoSuchWindowException, ElementNotInteractableException, WebDriverException
+from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, NoSuchWindowException, ElementNotInteractableException, WebDriverException, TimeoutException
 
 from config.personals import *
 from config.questions import *
@@ -49,6 +49,29 @@ if use_AI:
     from modules.ai.geminiConnections import gemini_create_client, gemini_extract_skills, gemini_answer_question
 
 from typing import Literal
+from functools import wraps
+
+
+def retry_on_stale_element(max_retries=3, delay=1):
+    """
+    装饰器：处理 Stale Element Reference 错误
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if "stale element" in str(e).lower() and attempt < max_retries - 1:
+                        print_lg(f"Stale element detected, retrying... (attempt {attempt + 1}/{max_retries})")
+                        buffer(delay)
+                        continue
+                    else:
+                        raise e
+            return None
+        return wrapper
+    return decorator
 
 
 pyautogui.FAILSAFE = False
@@ -121,7 +144,8 @@ def login_LN() -> None:
     * If both failed, asks user to login manually
     '''
     # Find the username and password fields and fill them with user credentials
-    driver.get("https://www.linkedin.com/login")
+    # Force English language interface by adding locale parameter
+    driver.get("https://www.linkedin.com/login?locale=en_US")
     try:
         wait.until(EC.presence_of_element_located((By.LINK_TEXT, "Forgot password?")))
         try:
@@ -260,7 +284,12 @@ def get_page_info() -> tuple[WebElement | None, int | None]:
     try:
         pagination_element = try_find_by_classes(driver, ["jobs-search-pagination__pages", "artdeco-pagination", "artdeco-pagination__pages"])
         scroll_to_view(driver, pagination_element)
-        current_page = int(pagination_element.find_element(By.XPATH, "//button[contains(@class, 'active')]").text)
+        # 添加数据验证，避免空字符串转换错误
+        page_text = pagination_element.find_element(By.XPATH, "//button[contains(@class, 'active')]").text
+        if page_text and page_text.strip():
+            current_page = int(page_text)
+        else:
+            current_page = 1  # 默认第一页
     except Exception as e:
         print_lg("Failed to find Pagination element, hence couldn't scroll till end!")
         pagination_element = None
@@ -270,7 +299,7 @@ def get_page_info() -> tuple[WebElement | None, int | None]:
 
 
 
-def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_jobs: set) -> tuple[str, str, str, str, str, bool]:
+def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_jobs: set, job_index: int = 0) -> tuple[str, str, str, str, str, bool]:
     '''
     # Function to get job main details.
     Returns a tuple of (job_id, title, company, work_location, work_style, skip)
@@ -281,42 +310,101 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
     * work_style: Work style of this job (Remote, On-site, Hybrid)
     * skip: A boolean flag to skip this job
     '''
-    job_details_button = job.find_element(By.TAG_NAME, 'a')  # job.find_element(By.CLASS_NAME, "job-card-list__title")  # Problem in India
-    scroll_to_view(driver, job_details_button, True)
-    job_id = job.get_dom_attribute('data-occludable-job-id')
-    title = job_details_button.text
-    title = title[:title.find("\n")]
-    # company = job.find_element(By.CLASS_NAME, "job-card-container__primary-description").text
-    # work_location = job.find_element(By.CLASS_NAME, "job-card-container__metadata-item").text
-    other_details = job.find_element(By.CLASS_NAME, 'artdeco-entity-lockup__subtitle').text
-    index = other_details.find(' · ')
-    company = other_details[:index]
-    work_location = other_details[index+3:]
-    work_style = work_location[work_location.rfind('(')+1:work_location.rfind(')')]
-    work_location = work_location[:work_location.rfind('(')].strip()
-    
-    # Skip if previously rejected due to blacklist or already applied
-    skip = False
-    if company in blacklisted_companies:
-        print_lg(f'Skipping "{title} | {company}" job (Blacklisted Company). Job ID: {job_id}!')
-        skip = True
-    elif job_id in rejected_jobs: 
-        print_lg(f'Skipping previously rejected "{title} | {company}" job. Job ID: {job_id}!')
-        skip = True
-    try:
-        if job.find_element(By.CLASS_NAME, "job-card-container__footer-job-state").text == "Applied":
-            skip = True
-            print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
-    except: pass
-    try: 
-        if not skip: job_details_button.click()
-    except Exception as e:
-        print_lg(f'Failed to click "{title} | {company}" job on details button. Job ID: {job_id}!') 
-        # print_lg(e)
-        discard_job()
-        job_details_button.click() # To pass the error outside
-    buffer(click_gap)
-    return (job_id,title,company,work_location,work_style,skip)
+    # 添加重试机制处理元素定位失败
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # 使用显式等待定位职位链接，提高稳定性
+            job_details_button = WebDriverWait(driver, 5).until(
+                lambda d: job.find_element(By.TAG_NAME, 'a')
+            )
+            # 确保元素可见
+            scroll_to_view(driver, job_details_button, True)
+            buffer(0.5)  # 短暂等待滚动完成
+            job_id = job.get_dom_attribute('data-occludable-job-id')
+            title = job_details_button.text
+            title = title[:title.find("\n")] if "\n" in title else title
+            
+            other_details = job.find_element(By.CLASS_NAME, 'artdeco-entity-lockup__subtitle').text
+            index = other_details.find(' · ')
+            company = other_details[:index] if index > 0 else other_details
+            work_location = other_details[index+3:] if index > 0 else ""
+            work_style = work_location[work_location.rfind('(')+1:work_location.rfind(')')] if '(' in work_location and ')' in work_location else ""
+            work_location = work_location[:work_location.rfind('(')].strip() if '(' in work_location else work_location.strip()
+            
+            # Skip if previously rejected due to blacklist or already applied
+            skip = False
+            if company in blacklisted_companies:
+                print_lg(f'Skipping "{title} | {company}" job (Blacklisted Company). Job ID: {job_id}!')
+                skip = True
+            elif job_id in rejected_jobs: 
+                print_lg(f'Skipping previously rejected "{title} | {company}" job. Job ID: {job_id}!')
+                skip = True
+            try:
+                if job.find_element(By.CLASS_NAME, "job-card-container__footer-job-state").text == "Applied":
+                    skip = True
+                    print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
+            except: pass
+            
+            # 添加重试机制处理点击失败
+            if not skip:
+                click_success = False
+                for click_attempt in range(max_retries):
+                    try:
+                        job_details_button.click()
+                        click_success = True
+                        break
+                    except Exception as click_error:
+                        if "stale element" in str(click_error).lower() and click_attempt < max_retries - 1:
+                            # 重新定位元素，使用显式等待
+                            try:
+                                job_details_button = WebDriverWait(driver, 3).until(
+                                    lambda d: job.find_element(By.TAG_NAME, 'a')
+                                )
+                                scroll_to_view(driver, job_details_button, True)
+                                buffer(0.5)
+                            except Exception:
+                                # 如果重新定位失败，尝试重新获取 job 元素
+                                job_listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")
+                                if job_listings and job_id:
+                                    # 尝试通过 job_id 找到对应的 job 元素
+                                    for j in job_listings:
+                                        if j.get_dom_attribute('data-occludable-job-id') == job_id:
+                                            job = j
+                                            job_details_button = j.find_element(By.TAG_NAME, 'a')
+                                            break
+                            continue
+                        elif click_attempt == max_retries - 1:
+                            print_lg(f'Failed to click "{title} | {company}" job on details button. Job ID: {job_id}!') 
+                            discard_job()
+                            raise click_error
+                        else:
+                            continue
+                            
+            buffer(click_gap)
+            return (job_id, title, company, work_location, work_style, skip)
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print_lg(f"Retrying job details extraction (attempt {attempt + 1}/{max_retries})")
+                buffer(1)  # 短暂等待后重试
+                # 重新获取 job 元素，避免 stale element
+                # 重新获取 job 元素，避免 stale element
+                try:
+                    job_listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")
+                    if job_listings and 0 <= job_index < len(job_listings):
+                        # Use the index to get the correct job element
+                        job = job_listings[job_index]
+                    else:
+                        # Fallback if index is out of bounds (should rarely happen if list didn't shrink)
+                        job_index = job_listings.index(job) if job in job_listings else 0
+                        job = job_listings[job_index] if job_index < len(job_listings) else job_listings[0]
+                except Exception:
+                    pass
+                continue
+            else:
+                print_lg(f"Failed to extract job details after {max_retries} attempts: {e}")
+                return ("", "", "", "", "", True)  # 返回空值并跳过
 
 
 # Function to check for Blacklisted words in About Company
@@ -351,7 +439,17 @@ def extract_years_of_experience(text: str) -> int:
     if len(matches) == 0: 
         print_lg(f'\n{text}\n\nCouldn\'t find experience requirement in About the Job!')
         return 0
-    return max([int(match) for match in matches if int(match) <= 12])
+    # 添加数据验证，避免空字符串转换错误
+    valid_matches = []
+    for match in matches:
+        if match and match.strip():  # 检查非空
+            try:
+                value = int(match)
+                if value <= 12:  # 合理的经验年限范围
+                    valid_matches.append(value)
+            except ValueError:
+                continue  # 跳过无效的匹配
+    return max(valid_matches) if valid_matches else 0
 
 
 
@@ -426,11 +524,24 @@ def answer_common_questions(label: str, answer: str) -> str:
     if 'sponsorship' in label or 'visa' in label: answer = require_visa
     return answer
 
+# Function to log experience analysis for debugging
+def log_experience_analysis(question: str, answer: str, method: str) -> None:
+    """记录经验年限分析结果用于调试"""
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{timestamp}] Experience Analysis - Question: '{question}' | Answer: '{answer}' | Method: {method}\n"
+        
+        # 写入日志文件
+        with open("logs/experience_analysis.log", "a", encoding="utf-8") as f:
+            f.write(log_entry)
+    except Exception as e:
+        print_lg(f"Failed to log experience analysis: {e}")
+
 
 # Function to answer the questions for Easy Apply
 def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None ) -> set:
     # Get all questions from the page
-     
+    do_actions = False  # 初始化变量，避免作用域错误
     all_questions = modal.find_elements(By.XPATH, ".//div[@data-test-form-element]")
     # all_questions = modal.find_elements(By.CLASS_NAME, "jobs-easy-apply-form-element")
     # all_list_questions = modal.find_elements(By.XPATH, ".//div[@data-test-text-entity-list-form-component]")
@@ -586,7 +697,31 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
 
             prev_answer = text.get_attribute("value")
             if not prev_answer or overwrite_previous_answers:
-                if 'experience' in label or 'years' in label: answer = years_of_experience
+                if 'experience' in label or 'years' in label: 
+                    # 优先使用AI分析用户背景来回答经验问题
+                    if use_AI and aiClient:
+                        try:
+                            if ai_provider.lower() == "openai":
+                                ai_answer = ai_answer_question(aiClient, label_org, question_type="text", job_description=job_description, user_information_all=user_information_all)
+                            elif ai_provider.lower() == "deepseek":
+                                ai_answer = deepseek_answer_question(aiClient, label_org, options=None, question_type="text", job_description=job_description, about_company=None, user_information_all=user_information_all)
+                            elif ai_provider.lower() == "gemini":
+                                ai_answer = gemini_answer_question(aiClient, label_org, options=None, question_type="text", job_description=job_description, about_company=None, user_information_all=user_information_all)
+                            
+                            if ai_answer and isinstance(ai_answer, str) and ai_answer.strip().isdigit():
+                                answer = ai_answer.strip()
+                                print_lg(f'AI analyzed experience for "{label_org}": {answer} years')
+                                # 记录AI分析的经验年限用于调试
+                                log_experience_analysis(label_org, answer, "AI_ANALYSIS")
+                            else:
+                                answer = years_of_experience
+                                print_lg(f'AI analysis failed for "{label_org}", using default: {answer} years')
+                                log_experience_analysis(label_org, answer, "DEFAULT_FALLBACK")
+                        except Exception as e:
+                            print_lg("AI experience analysis failed, using default:", e)
+                            answer = years_of_experience
+                    else:
+                        answer = years_of_experience
                 elif 'phone' in label or 'mobile' in label: answer = phone_number
                 elif 'street' in label: answer = street
                 elif 'city' in label or 'location' in label or 'address' in label:
@@ -668,6 +803,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
         # Check if it's a textarea question
         text_area = try_xp(Question, ".//textarea", False)
         if text_area:
+            do_actions = False  # 为 textarea 重新初始化
             label = try_xp(Question, ".//label[@for]", False)
             label_org = label.text if label else "Unknown"
             label = label_org.lower()
@@ -873,8 +1009,22 @@ def apply_to_jobs(search_terms: list[str]) -> None:
         current_count = 0
         try:
             while current_count < switch_number:
-                # Wait until job listings are loaded
-                wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
+                # 使用更稳定的等待条件，等待职位列表加载完成
+                max_page_retries = 3
+                for page_retry in range(max_page_retries):
+                    try:
+                        wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
+                        # 额外等待确保页面完全加载
+                        buffer(2)
+                        break
+                    except Exception as e:
+                        if page_retry < max_page_retries - 1:
+                            print_lg(f"Failed to load job listings, retrying... ({page_retry + 1}/{max_page_retries})")
+                            buffer(3)
+                            continue
+                        else:
+                            print_lg("Still failed to load job listings after all retries")
+                            raise e
 
                 pagination_element, current_page = get_page_info()
 
@@ -883,12 +1033,13 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                 job_listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")  
 
             
-                for job in job_listings:
+                for index, job in enumerate(job_listings):
                     if keep_screen_awake: pyautogui.press('shiftright')
                     if current_count >= switch_number: break
                     print_lg("\n-@-\n")
 
-                    job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
+                    jobs_top_card = None # Initialize to avoid UnboundLocalError
+                    job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs, index)
                     
                     if skip: continue
                     # Redundant fail safe check for applied jobs!
@@ -955,7 +1106,11 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                     try:
                         # try: time_posted_text = find_by_class(driver, "jobs-unified-top-card__posted-date", 2).text
                         # except: 
-                        time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
+                        if jobs_top_card:
+                             time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
+                        else:
+                             # Fallback if jobs_top_card failed to load
+                             time_posted_text = find_by_class(driver, "jobs-unified-top-card__posted-date", 2).text
                         print("Time Posted: " + time_posted_text)
                         if time_posted_text.__contains__("Reposted"):
                             reposted = True
@@ -995,62 +1150,47 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                     # Case 1: Easy Apply Button
                     if try_xp(driver, ".//button[contains(@class,'jobs-apply-button') and contains(@class, 'artdeco-button--3') and contains(@aria-label, 'Easy')]"):
                         try: 
-                            try:
-                                errored = ""
-                                modal = find_by_class(driver, "jobs-easy-apply-modal")
-                                wait_span_click(modal, "Next", 1)
-                                # if description != "Unknown":
-                                #     resume = create_custom_resume(description)
-                                resume = "Previous resume"
-                                next_button = True
-                                questions_list = set()
-                                next_counter = 0
-                                while next_button:
-                                    next_counter += 1
-                                    if next_counter >= 15: 
-                                        if pause_at_failed_question:
-                                            screenshot(driver, job_id, "Needed manual intervention for failed question")
-                                            pyautogui.alert("Couldn't answer one or more questions.\nPlease click \"Continue\" once done.\nDO NOT CLICK Back, Next or Review button in LinkedIn.\n\n\n\n\nYou can turn off \"Pause at failed question\" setting in config.py", "Help Needed", "Continue")
-                                            next_counter = 1
-                                            continue
-                                        if questions_list: print_lg("Stuck for one or some of the following questions...", questions_list)
-                                        screenshot_name = screenshot(driver, job_id, "Failed at questions")
-                                        errored = "stuck"
-                                        raise Exception("Seems like stuck in a continuous loop of next, probably because of new questions.")
-                                    questions_list = answer_questions(modal, questions_list, work_location, job_description=description)
-                                    if useNewResume and not uploaded: uploaded, resume = upload_resume(modal, default_resume_path)
-                                    try: next_button = modal.find_element(By.XPATH, './/span[normalize-space(.)="Review"]') 
-                                    except NoSuchElementException:  next_button = modal.find_element(By.XPATH, './/button[contains(span, "Next")]')
-                                    try: next_button.click()
-                                    except ElementClickInterceptedException: break    # Happens when it tries to click Next button in About Company photos section
+                            errored = ""
+                            modal = find_by_class(driver, "jobs-easy-apply-modal")
+                            find_button_in_modal(modal, "Next", timeout=1)
+                            # if description != "Unknown":
+                            #     resume = create_custom_resume(description)
+                            resume = "Previous resume"
+                            next_button = True
+                            questions_list = set()
+                            next_counter = 0
+                            while next_button:
+                                next_counter += 1
+                                if next_counter >= 15: 
+                                    if pause_at_failed_question:
+                                        screenshot(driver, job_id, "Needed manual intervention for failed question")
+                                        pyautogui.alert("Couldn't answer one or more questions.\nPlease click \"Continue\" once done.\nDO NOT CLICK Back, Next or Review button in LinkedIn.\n\n\n\n\nYou can turn off \"Pause at failed question\" setting in config.py", "Help Needed", "Continue")
+                                        next_counter = 1
+                                        continue
+                                    if questions_list: print_lg("Stuck for one or some of the following questions...", questions_list)
+                                    screenshot_name = screenshot(driver, job_id, "Failed at questions")
+                                    errored = "stuck"
+                                    raise Exception("Seems like stuck in a continuous loop of next, probably because of new questions.")
+                                questions_list = answer_questions(modal, questions_list, work_location, job_description=description)
+                                if useNewResume and not uploaded: uploaded, resume = upload_resume(modal, default_resume_path)
+                                # Use specialized modal button finder with fallback strategies for Review/Next buttons
+                                next_button = find_button_in_modal(
+                                    modal, 
+                                    "Review", 
+                                    timeout=3, 
+                                    click=True,
+                                    fallback_xpaths=['.//button[contains(span, "Next")]']
+                                )
+                                
+                                if next_button:
                                     buffer(click_gap)
-
-                            except NoSuchElementException: errored = "nose"
-                            finally:
-                                if questions_list and errored != "stuck": 
-                                    print_lg("Answered the following questions...", questions_list)
-                                    print("\n\n" + "\n".join(str(question) for question in questions_list) + "\n\n")
-                                wait_span_click(driver, "Review", 1, scrollTop=True)
-                                cur_pause_before_submit = pause_before_submit
-                                if errored != "stuck" and cur_pause_before_submit:
-                                    decision = pyautogui.confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
-                                    if decision == "Discard Application": raise Exception("Job application discarded by user!")
-                                    pause_before_submit = False if "Disable Pause" == decision else True
-                                    # try_xp(modal, ".//span[normalize-space(.)='Review']")
-                                follow_company(modal)
-                                if wait_span_click(driver, "Submit application", 2, scrollTop=True): 
-                                    date_applied = datetime.now()
-                                    if not wait_span_click(driver, "Done", 2): actions.send_keys(Keys.ESCAPE).perform()
-                                elif errored != "stuck" and cur_pause_before_submit and "Yes" in pyautogui.confirm("You submitted the application, didn't you 😒?", "Failed to find Submit Application!", ["Yes", "No"]):
-                                    date_applied = datetime.now()
-                                    wait_span_click(driver, "Done", 2)
                                 else:
-                                    print_lg("Since, Submit Application failed, discarding the job application...")
-                                    # if screenshot_name == "Not Available":  screenshot_name = screenshot(driver, job_id, "Failed to click Submit application")
-                                    # else:   screenshot_name = [screenshot_name, screenshot(driver, job_id, "Failed to click Submit application")]
-                                    if errored == "nose": raise Exception("Failed to click Submit application 😑")
+                                    # No Review or Next button found, likely reached the end
+                                    break
 
-
+                        except NoSuchElementException: 
+                            errored = "nose"
+                            print_lg("No such element found in Easy Apply process")
                         except Exception as e:
                             print_lg("Failed to Easy apply!")
                             # print_lg(e)
@@ -1059,6 +1199,29 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                             failed_count += 1
                             discard_job()
                             continue
+                        finally:
+                            if questions_list and errored != "stuck": 
+                                print_lg("Answered the following questions...", questions_list)
+                                print("\n\n" + "\n".join(str(question) for question in questions_list) + "\n\n")
+                            find_button_in_modal(modal, "Review", timeout=1, scrollTop=True)
+                            cur_pause_before_submit = pause_before_submit
+                            if errored != "stuck" and cur_pause_before_submit:
+                                decision = pyautogui.confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
+                                if decision == "Discard Application": raise Exception("Job application discarded by user!")
+                                pause_before_submit = False if "Disable Pause" == decision else True
+                            # try_xp(modal, ".//span[normalize-space(.)='Review']")
+                            follow_company(modal)
+                            if find_button_in_modal(modal, "Submit application", timeout=2, scrollTop=True): 
+                                date_applied = datetime.now()
+                                if not find_button_in_modal(modal, "Done", timeout=2): actions.send_keys(Keys.ESCAPE).perform()
+                            elif errored != "stuck" and cur_pause_before_submit and "Yes" in pyautogui.confirm("You submitted the application, didn't you 😒?", "Failed to find Submit Application!", ["Yes", "No"]):
+                                date_applied = datetime.now()
+                                find_button_in_modal(modal, "Done", timeout=2)
+                            else:
+                                print_lg("Since, Submit Application failed, discarding the job application...")
+                                # if screenshot_name == "Not Available":  screenshot_name = screenshot(driver, job_id, "Failed to click Submit application")
+                                # else:   screenshot_name = [screenshot_name, screenshot(driver, job_id, "Failed to click Submit application")]
+                                if errored == "nose": raise Exception("Failed to click Submit application 😑")
                     else:
                         # Case 2: Apply externally
                         skip, application_link, tabs_count = external_apply(pagination_element, job_id, job_link, resume, date_listed, application_link, screenshot_name)
@@ -1126,10 +1289,15 @@ linkedIn_tab = False
 
 def main() -> None:
     try:
-        global linkedIn_tab, tabs_count, useNewResume, aiClient
+        global linkedIn_tab, tabs_count, useNewResume, aiClient, use_AI
         alert_title = "Error Occurred. Closing Browser!"
-        total_runs = 1        
-        validate_config()
+        total_runs = 1
+        try:
+            validate_config()
+        except (ValueError, TypeError) as e:
+            print_lg(f"Configuration validation failed: {e}")
+            pyautogui.alert(f"Configuration Error:\n\n{e}\n\nPlease fix the configuration and try again.", alert_title)
+            return
         
         if not os.path.exists(default_resume_path):
             pyautogui.alert(text='Your default resume "{}" is missing! Please update it\'s folder path "default_resume_path" in config.py\n\nOR\n\nAdd a resume with exact name and path (check for spelling mistakes including cases).\n\n\nFor now the bot will continue using your previous upload from LinkedIn!'.format(default_resume_path), title="Missing Resume", button="OK")
@@ -1154,15 +1322,20 @@ def main() -> None:
         #     except Exception as e:
         #         print_lg("Opening OpenAI chatGPT tab failed!")
         if use_AI:
-            if ai_provider == "openai":
-                aiClient = ai_create_openai_client()
-            ##> ------ Yang Li : MARKYangL - Feature ------
-            # Create DeepSeek client
-            elif ai_provider == "deepseek":
-                aiClient = deepseek_create_client()
-            elif ai_provider == "gemini":
-                aiClient = gemini_create_client()
-            ##<
+            try:
+                if ai_provider == "openai":
+                    aiClient = ai_create_openai_client()
+                ##> ------ Yang Li : MARKYangL - Feature ------
+                # Create DeepSeek client
+                elif ai_provider == "deepseek":
+                    aiClient = deepseek_create_client()
+                elif ai_provider == "gemini":
+                    aiClient = gemini_create_client()
+                ##<
+            except Exception as e:
+                print_lg(f"Failed to create {ai_provider} AI client. Continuing without AI features.", e)
+                aiClient = None
+                use_AI = False
 
             try:
                 about_company_for_ai = " ".join([word for word in (first_name+" "+last_name).split() if len(word) > 3])
