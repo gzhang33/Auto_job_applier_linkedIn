@@ -192,6 +192,9 @@ Once your code is tested, your changes will be merged to the `main` branch in ne
 [back to index](#-content)
 
 ## 🗓️ Major Updates History:
+### Jan 20, 2026
+- You can now simultaneously use chrome, while bot continues applying in a new window
+
 ### Jul 20, 2024
 - Contributions from community have been added
 - Better AI support, minor bug fixes
@@ -317,7 +320,7 @@ alternate link: https://discord.gg/ykfDjRFB
     - [Support Q&A](https://github.com/GodsScion/Auto_job_applier_linkedIn/discussions/categories/support-q-a)
 
 
-#### ℹ️ Version: 25.07.20.9.30 Community Alpha
+#### ℹ️ Version: 26.01.20.5.08
 
 ---
 
