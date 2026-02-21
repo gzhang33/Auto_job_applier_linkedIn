@@ -1,0 +1,7 @@
+undetected-chromedriver>=3.5
+pyautogui>=0.9.54
+setuptools
+openai
+flask-cors
+flask
+selenium

@@ -79,6 +79,10 @@ except Exception as e:
     critical_error_log("In Opening Chrome", e)
     from pyautogui import alert
     alert(msg, "Error in opening chrome")
-    try: driver.quit()
-    except NameError: exit()
+    try:
+        if driver is not None:
+            driver.quit()
+    except (NameError, AttributeError):
+        pass
+    exit()
     
